@@ -1,0 +1,181 @@
+---
+title: "gold-digger"
+format: dashboard
+---
+
+```{r}
+library(rvest)
+library(tidyverse)
+library(scales)
+library(gt)
+library(bslib)
+library(bsicons)
+
+```
+
+```{r}
+document <- read_html("https://www.hargaemas.com/")
+```
+
+```{r}
+harga_beli <- document %>% 
+  html_element(xpath="/html/body/div[2]/section[1]/div[2]/div[1]/table[2]") %>%
+  html_table(header = TRUE) %>% 
+  mutate(Antam = gsub("[^0-9,]", "", Antam),
+         Harga_PPh = as.numeric(Antam) * 1.0025,
+         Harga_PPh = ceiling(Harga_PPh),
+         Harga_PPh = paste('Rp',formatC(Harga_PPh, big.mark='.', 
+                                        decimal.mark = ',' ,format = 'd')),
+         Antam = paste('Rp',formatC(as.numeric(Antam), big.mark='.', 
+                                    decimal.mark = ',' ,format = 'd'))) %>%
+  select(Gram, Antam, Harga_PPh)
+```
+
+```{r}
+harga_jual <- document %>% 
+  html_element(xpath="/html/body/div[2]/section[1]/div[2]/div[1]/table[1]") %>%
+  html_table(header = TRUE) %>% 
+  mutate(buyback = gsub("[\\+\\-].*", "", BUYBACK),
+         buyback = gsub("\\.", "", buyback),
+         tanda = str_extract(BUYBACK, "[\\+\\-]"),
+         perubahan = gsub(".*[\\+\\-]", "\\1", BUYBACK),
+         perubahan = gsub("\\.", "", perubahan))
+```
+
+```{r}
+df = data.frame(no = c(1,2,3,4),
+                gramasi = c(0.5,3,5,5),
+                pcs = c(1,1,3,1),
+                harga_beli = c(0, 3897000, 16519000, 6465000))
+```
+
+
+```{r}
+df <- df %>% 
+  mutate(buyback = case_when(gramasi >= 10 ~ gramasi * pcs * as.numeric(harga_jual$buyback)*1.015 - pcs*10000,
+                             gramasi >= 5 ~ gramasi * pcs * as.numeric(harga_jual$buyback) - pcs*10000,
+                             gramasi < 5 ~ gramasi * pcs * as.numeric(harga_jual$buyback)),
+         keuntungan = buyback - harga_beli,
+         RoR = keuntungan/harga_beli,
+         RoR = percent(RoR))
+```
+
+
+```{r}
+harga_buyback <- dollar(as.numeric(harga_jual$buyback),
+       prefix = "Rp ",
+       big.mark = ".",
+       decimal.mark = ",")
+
+```
+
+```{r}
+hari <- document %>% 
+  html_element(xpath="/html/body/div[2]/section[1]/div[1]/h2/span[2]") %>% 
+  html_text2()
+```
+
+Update per `{r} hari`
+
+## row 1
+
+```{r}
+value_box(
+  title = "Harga Emas",
+  value = harga_beli[2,"Antam"][[1]],
+  showcase = bs_icon("coin"),
+  showcase_layout = "top right",
+  theme = "warning"
+)
+```
+
+```{r}
+value_box(
+  title = "Buyback",
+  value = harga_buyback,
+  showcase = bs_icon("cash"),
+  showcase_layout = "top right",
+  theme = "primary"
+)
+```
+
+```{r}
+if (harga_jual$tanda == "+") {
+  value_box(
+    title = "Perubahan",
+    value = paste0(harga_jual$tanda, harga_jual$perubahan),
+    showcase = bs_icon("arrow-up"),
+    theme = "success"
+  )
+} else {
+  value_box(
+    title = "Perubahan",
+    value = paste0(harga_jual$tanda, harga_jual$perubahan),
+    showcase = bs_icon("arrow-down"),
+    theme = "danger"
+  )
+}
+```
+
+
+
+## row 2 
+### column 1 {width=30%}
+```{r}
+#| title = "Tabel Harga Beli Emas ANTAM"
+harga_beli %>% 
+  gt() %>% 
+  tab_options(table.width = pct(100), table.font.size = pct(150)) %>% 
+  tab_footnote(
+    footnote = "dikenai PPh 22 sebesar 0,25%",
+    locations = cells_column_labels(columns = Harga_PPh)
+    ) %>% 
+  cols_align(
+    align = "center",
+    columns = Gram
+    ) %>% 
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = everything())
+    )
+```
+
+### column 2 {width=70%}
+```{r}
+#| title = "Tabel Harga Jual (Buyback)"
+df %>% 
+  gt() %>%
+  cols_align(
+    align = "center",
+    columns = everything()
+    )%>% 
+  tab_options(table.width = pct(90), table.font.size = pct(150)) %>% 
+  tab_footnote(
+    footnote = "transaksi buyback dengan nilai di atas Rp10.000.000 akan dikenai PPh 22 sebesar 1,5%",
+    locations = cells_column_labels(columns = buyback)
+    ) %>% 
+  tab_footnote(
+    footnote = "transaksi buyback dengan nilai di atas 3 gram akan dikenai biaya Materai Rp 10.000",
+    locations = cells_column_labels(columns = buyback)
+    ) %>% 
+
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(columns = everything())
+    ) %>% 
+  fmt_currency(
+    columns = c(harga_beli, buyback, keuntungan),
+    currency = "IDR",
+    incl_space = TRUE,
+    sep_mark = ".",
+    dec_mark = ",",
+    decimals = 0
+  )
+```
+
+
+
+
+
+
+
